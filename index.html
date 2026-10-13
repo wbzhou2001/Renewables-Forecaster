@@ -225,7 +225,7 @@
       </div>
       <nav class="readme-toc" aria-label="README sections">
         <a href="#rm-about">About</a><a href="#rm-reading">Reading the dashboard</a>
-        <a href="#rm-calibration">Calibration check</a><a href="#rm-method">Method</a><a href="#rm-caveats">Caveats</a>
+        <a href="#rm-calibration">Calibration check</a><a href="#rm-method">Method</a>
       </nav>
 
       <section id="rm-about">
@@ -284,16 +284,6 @@
         <p>The model is refitted on all records and simulated to \(2050\). The saturation term is \(\gamma(t) = 1\) until the tipping point \(t_{\text{tp}}\); after it, adoption slows with the remaining headroom to the cap:</p>
         <div class="md">\[\gamma(t) = \frac{1 - N_t / N_{\text{cap}}}{1 - N_{t_{\text{tp}}} / N_{\text{cap}}}, \qquad t \ge t_{\text{tp}}\]</div>
         <p>Each path also draws its growth rate \(\rho\) from its estimated sampling error, anchored to today's rate, so the band widens with the horizon.</p>
-      </section>
-
-      <section id="rm-caveats">
-        <h3>Caveats</h3>
-        <ul>
-          <li>The conformal guarantee covers only the next-window intervals. The \(2050\) band is a model-based Monte Carlo spread under the chosen saturation scenario.</li>
-          <li>Held-out windows overlap in time and span only a few years, so the coverage checks are noisy.</li>
-          <li>With few records per circuit, the per-circuit background rates absorb part of the clustering, so peer effects tend to be under-estimated.</li>
-          <li>OpenStreetMap's main tile server rejects requests from pages opened directly from disk (<code>file://</code>). The map then switches to OpenStreetMap France's Humanitarian tiles. Served over http(s), such as GitHub Pages or a local server, it uses the standard OpenStreetMap tiles. Offline, the map falls back to a schematic view.</li>
-        </ul>
       </section>
     </div>
   </aside>
