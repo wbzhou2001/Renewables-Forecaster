@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>HPCP Portal · Renewables Forecaster</title>
+  <meta name="description" content="Live DER adoption forecasting for Indianapolis: multivariate Hawkes process + hierarchical probabilistic conformal prediction (HPCP).">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="side" id="side" aria-label="Control panel">
+    <div class="side-inner">
+      <div class="brand">
+        <div class="brand-name">Control panel</div>
+      </div>
+
+      <section class="ctl-group">
+        <h2>Data <button type="button" class="q" aria-label="About the data source" data-help="Synthetic: installation records drawn from a known multivariate Hawkes process (the ground truth), at the scale of the real Indianapolis data. Upload CSV: use your own installation records instead.">?</button></h2>
+        <div class="seg" role="radiogroup" aria-label="Data source">
+          <button type="button" data-source="synthetic" aria-pressed="true">Synthetic</button>
+          <button type="button" data-source="upload" aria-pressed="false">Upload CSV</button>
+        </div>
+        <div id="synthCtl">
+          <div class="ctl-row">
+            <div class="ctl-head">
+              <label for="seed">Seed</label>
+              <button type="button" class="q" aria-label="About the seed" data-help="Seed of the synthetic data generator. The same seed always reproduces the same records. New sample draws a fresh dataset from the same generator.">?</button>
+            </div>
+            <div class="inline">
+              <input id="seed" type="number" min="1" step="1">
+              <button type="button" id="reseed" class="btn ghost">New sample</button>
+            </div>
+          </div>
+          <details class="gen">
+            <summary>Ground-truth generator <span class="muted" data-sector-name></span></summary>
+            <div id="genCtl"></div>
+          </details>
+        </div>
+        <div id="uploadCtl" hidden>
+          <div class="ctl-row">
+            <div class="ctl-head">
+              <label for="fileRecords">Installation records</label>
+              <button type="button" class="q" aria-label="About the records file" data-help="CSV with columns date, circuit_id, substation_id and an optional sector. A sector value containing “com” counts as commercial; anything else is residential. Dates can be in any common format. Download → Records exports the synthetic sample in exactly this format.">?</button>
+            </div>
+            <input id="fileRecords" type="file" accept=".csv,text/csv">
+          </div>
+          <div class="ctl-row">
+            <div class="ctl-head">
+              <label for="fileTopo">Circuit topology <span class="muted">(optional)</span></label>
+              <button type="button" class="q" aria-label="About the topology file" data-help="CSV with columns circuit_id, substation_id, residential_customers, commercial_customers, and optional lon, lat. Customers set the penetration denominators; lon/lat place circuits on the map. Without it, circuits are placed schematically.">?</button>
+            </div>
+            <input id="fileTopo" type="file" accept=".csv,text/csv">
+          </div>
+          <div class="ctl-row">
+            <div class="ctl-head">
+              <label for="custTotal">Total customers</label>
+              <button type="button" class="q" aria-label="About total customers" data-help="Used only when no topology file is given. The total is split evenly across circuits ($90\%$ residential, $10\%$ commercial) to form the penetration denominators.">?</button>
+            </div>
+            <input id="custTotal" type="number" min="1" step="1" value="568894">
+          </div>
+          <p class="help" id="uploadMsg" role="status"></p>
+        </div>
+      </section>
+
+      <section class="ctl-group">
+        <h2>Model &amp; calibration</h2>
+        <div id="modelCtl"></div>
+      </section>
+
+      <section class="ctl-group">
+        <h2>Scenario <span class="muted" data-sector-name></span></h2>
+        <div id="scenarioCtl"></div>
+      </section>
+
+      <section class="ctl-group actions">
+        <button type="button" id="reset" class="btn">Reset to initial configuration</button>
+        <div class="dl">
+          <span class="muted">Download</span>
+          <button type="button" class="btn ghost" data-export="records">Records</button>
+          <button type="button" class="btn ghost" data-export="forecast">Forecast</button>
+          <button type="button" class="btn ghost" data-export="window">Next window</button>
+        </div>
+      </section>
+    </div>
+  </aside>
+  <div class="side-resizer" id="sideResizer" role="separator" aria-orientation="vertical" aria-controls="side" aria-label="Resize control panel; drag to the left edge to hide it" title="Drag to resize · drag to the left edge to hide" tabindex="0"></div>
+
+  <main>
+    <header class="top">
+      <div class="top-left">
+        <a class="cmu-logo" href="https://www.cmu.edu" target="_blank" rel="noopener" aria-label="Carnegie Mellon University">
+          <span class="wordmark">Carnegie Mellon University<span class="wordmark-sub">Woody’s Group</span></span>
+        </a>
+        <span class="top-divider" aria-hidden="true"></span>
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="6.5"/>
+          <g stroke-width="2.2" stroke-linecap="round">
+            <line x1="16" y1="2.5" x2="16" y2="6"/><line x1="16" y1="26" x2="16" y2="29.5"/>
+            <line x1="2.5" y1="16" x2="6" y2="16"/><line x1="26" y1="16" x2="29.5" y2="16"/>
+            <line x1="6.5" y1="6.5" x2="8.9" y2="8.9"/><line x1="23.1" y1="23.1" x2="25.5" y2="25.5"/>
+            <line x1="6.5" y1="25.5" x2="8.9" y2="23.1"/><line x1="23.1" y1="8.9" x2="25.5" y2="6.5"/>
+          </g>
+        </svg>
+        <div class="title-block">
+          <h1>Renewables forecaster</h1>
+          <div class="kicker">Interactive portal</div>
+        </div>
+      </div>
+      <div class="top-right">
+        <button type="button" class="btn readme-btn" id="readmeBtn" aria-controls="readme" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 0 4 20.5zM20 5.5A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 1 1.5 1.5z"/></svg>
+          README
+        </button>
+        <button type="button" class="icon-btn" id="themeBtn" aria-label="Toggle dark mode" title="Toggle dark mode">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="toolbar">
+      <div class="tabs" role="tablist" aria-label="Sector">
+        <button role="tab" type="button" data-sector="residential" aria-selected="true">Residential</button>
+        <button role="tab" type="button" data-sector="commercial" aria-selected="false">Commercial</button>
+      </div>
+      <div class="status" id="status" role="status" aria-live="polite">
+        <span class="status-dot"></span><span id="statusText">Starting…</span>
+        <span class="progress" id="progress" hidden><span></span></span>
+      </div>
+    </div>
+
+    <div class="error" id="error" hidden></div>
+
+    <section class="card" id="cardOutlook">
+      <div class="card-head">
+        <h3>Adoption outlook to 2050</h3>
+        <div class="seg small" role="radiogroup" aria-label="Metric" id="metricSeg">
+          <button type="button" data-metric="units" aria-pressed="true">Installations</button>
+          <button type="button" data-metric="pen" aria-pressed="false">Penetration</button>
+          <button type="button" data-metric="mw" aria-pressed="false">Capacity</button>
+          <button type="button" data-metric="gwh" aria-pressed="false">Generation</button>
+        </div>
+      </div>
+      <div class="legend" id="fanLegend"></div>
+      <div class="chart" id="fan"></div>
+      <h4 class="sub-h" id="annualTitle">New per year</h4>
+      <div class="chart" id="annual"></div>
+    </section>
+
+    <div class="grid-2">
+      <section class="card" id="cardSubs">
+        <div class="card-head">
+          <h3 id="subsTitle">Next 12 months by substation</h3>
+        </div>
+        <div class="legend" id="subsLegend"></div>
+        <div class="chart" id="subs"></div>
+      </section>
+
+      <section class="card" id="cardMap">
+        <div class="card-head">
+          <h3>Grid map</h3>
+          <select id="mapMetric" aria-label="Map metric">
+            <option value="upper">Next-window upper bound</option>
+            <option value="width">Next-window interval width</option>
+            <option value="pen">Penetration today</option>
+            <option value="pen2050">Median penetration 2050</option>
+          </select>
+        </div>
+        <div class="legend map-key">
+          <span><i class="lk map-circuit"></i>Circuit (colored by the selected metric)</span>
+          <span><svg class="lk map-substation" viewBox="-8 -9 16 15" aria-hidden="true"><path d="M0,-7L6.5,4.5L-6.5,4.5Z"/></svg>Substation</span>
+          <span><i class="lk line map-link-key"></i>Circuit–substation link</span>
+        </div>
+        <div class="map-host" id="map"></div>
+        <div class="map-legend" id="mapLegend"></div>
+      </section>
+    </div>
+
+    <section class="card cite" id="cardCite">
+      <div class="card-head">
+        <h3>Cite this portal</h3>
+      </div>
+      <p class="cite-lede">If you use this portal or its forecasts, please cite the paper it is based on:</p>
+      <div class="cite-box">
+        <p id="citeText">Zhou, W., &amp; Zhu, S. (2026). Hierarchical probabilistic conformal prediction for distributed energy resources adoption. <i>The Annals of Applied Statistics</i>, <i>20</i>(2), 1626–1645. <a href="https://doi.org/10.1214/26-AOAS2199" target="_blank" rel="noopener">https://doi.org/10.1214/26-AOAS2199</a></p>
+        <div class="cite-actions">
+          <button type="button" class="btn ghost" id="copyCite" data-copy="citeText" data-label="Copy citation">Copy citation</button>
+          <button type="button" class="btn ghost" id="copyBib" data-copy="citeBib" data-label="Copy BibTeX">Copy BibTeX</button>
+        </div>
+        <pre id="citeBib" hidden>@article{zhou2026hierarchical,
+  title     = {Hierarchical Probabilistic Conformal Prediction for Distributed Energy Resources Adoption},
+  author    = {Zhou, Wenbin and Zhu, Shixiang},
+  journal   = {The Annals of Applied Statistics},
+  volume    = {20},
+  number    = {2},
+  pages     = {1626--1645},
+  year      = {2026},
+  month     = jun,
+  publisher = {Institute of Mathematical Statistics},
+  doi       = {10.1214/26-AOAS2199},
+  url       = {https://doi.org/10.1214/26-AOAS2199}
+}</pre>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <span id="footData"></span>
+      <span>Carnegie Mellon University · Zhou &amp; Zhu, <i>The Annals of Applied Statistics</i> (2026)</span>
+    </footer>
+  </main>
+
+  <!-- Math below is TeX between \( \) (inline) and \[ \] (display), typeset by KaTeX. -->
+  <aside class="readme" id="readme" aria-label="README" inert>
+    <div class="readme-inner">
+      <div class="readme-head">
+        <h2>README</h2>
+        <button type="button" class="icon-btn small" id="readmeClose" aria-label="Close README">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <nav class="readme-toc" aria-label="README sections">
+        <a href="#rm-about">About</a><a href="#rm-reading">Reading the dashboard</a>
+        <a href="#rm-calibration">Calibration check</a><a href="#rm-method">Method</a><a href="#rm-caveats">Caveats</a>
+      </nav>
+
+      <section id="rm-about">
+        <h3>About</h3>
+        <p>This portal forecasts rooftop solar adoption on the Indianapolis distribution grid. The demo runs on <strong>synthetic records</strong> drawn from the model in the paper, at the scale of the real dataset: about \(1{,}700\) records on \(K = 245\) circuits under \(R = 51\) substations, \(2010\)–\(2024\). Use <em>Upload CSV</em> to replace them with your own records.</p>
+        <p>Hover or tap the <span class="q-inline">?</span> next to any setting in the control panel to see what it does. Drag the panel's edge to resize it. Dragging it to the far left hides it and gives the dashboard the full width; drag or click the tab at the left edge to bring it back.</p>
+      </section>
+
+      <section id="rm-reading">
+        <h3>Reading the dashboard</h3>
+        <h4>Adoption outlook</h4>
+        <p>The gray line is observed cumulative adoption and the red line the median forecast, with its band shaded. The horizontal line marks the penetration cap and the vertical line the tipping point; the tinted region is the forecast period. The metric switch rescales everything:</p>
+        <ul>
+          <li><em>Penetration</em>: installations \(\div\) the sector's customers.</li>
+          <li><em>Capacity</em>: installations \(\times\) average system size.</li>
+          <li><em>Generation</em>: capacity \(\times\, 15.5\%\) capacity factor \(\times\, 8{,}760\,\text{h}\).</li>
+        </ul>
+        <p>The lower chart shows new installations per year: gray bars are observed, red bars the median forecast, and whiskers the band.</p>
+        <h4>Substations</h4>
+        <p>Each whisker is a substation's HPCP interval for new installations in the next window. The dot is the point forecast (mean of the \(M\) simulated futures) and the dark tick the count observed in the last window. Substations are sorted from the highest upper bound to the lowest. <span id="subsNote"></span></p>
+        <h4>Grid map</h4>
+        <p>Circuits are dots colored by the selected metric, joined to their substation (triangle) on an OpenStreetMap base map. Hover a circuit to see its numbers and highlight its sibling circuits. <strong>In the synthetic demo, positions are synthetic</strong>: circuits are scattered over Indianapolis and are not real feeder locations. Uploaded topology with lon/lat is drawn where it is.</p>
+      </section>
+
+      <section id="rm-calibration">
+        <h3>Calibration check</h3>
+        <p id="calSub"></p>
+        <p>HPCP (red) is compared with the paper's ablations (gray):</p>
+        <ul>
+          <li><em>Marginal</em>: circuit-only score, \(\mathbf{S} = \mathbf{I}\)</li>
+          <li><em>Joint</em>: one score over all circuits, \(\mathbf{S} = \mathbf{1}\mathbf{1}^\top\)</li>
+          <li><em>Bonferroni</em>: Marginal at level \(\alpha / K\)</li>
+        </ul>
+        <p>Points right of the target line reach the target coverage; lower means narrower intervals.</p>
+        <div class="chart" id="covC"></div>
+        <div class="chart" id="covS"></div>
+        <div class="table-wrap"><table class="tbl" id="calTable"></table></div>
+        <p class="note" id="calNote"></p>
+      </section>
+
+      <section id="rm-method">
+        <h3>Method</h3>
+        <h4>1 · Records → point process</h4>
+        <p>Every installation is an event \((t, k)\) on circuit \(k\), whose adoption rate is</p>
+        <div class="md">\[\begin{aligned}\lambda_k(t) = \gamma(t)\Big[&\,\mu_k e^{\rho t} + \alpha_{\text{self}} \sum_{t' < t,\; k' = k} \beta e^{-\beta (t - t')} \\ &+ \alpha_{\text{sib}} \sum_{t' < t,\; k' \in \mathcal{S}(k)} \beta e^{-\beta (t - t')}\Big]\end{aligned}\]</div>
+        <p>Here \(\mu_k e^{\rho t}\) is background adoption, which grows with cost declines and policy. The two sums are peer effects from earlier installations on the same circuit and on sibling circuits \(\mathcal{S}(k)\) under the same substation, a structured version of the interaction matrix \(\mathbf{A}\).</p>
+        <h4>2 · Fit by EM</h4>
+        <p>Maximum likelihood (Eq.&nbsp;\(4\)) via expectation-maximisation. Each event is split between "background" and "triggered by an earlier installation", which gives closed-form updates for \(\mu_k\), \(\rho\), \(\alpha_{\text{self}}\) and \(\alpha_{\text{sib}}\). The decay \(\beta\) is solved exactly, including the boundary term that matters when adoption grows quickly. A weak Gamma prior pulls each circuit's \(\mu_k\) toward its share of customers, so circuits with few installations keep a nonzero rate.</p>
+        <h4>3 · Hierarchical conformal intervals</h4>
+        <p>The model fitted before \(\tau\) simulates \(M\) futures \(\tilde y_j^{(m)}\) for every rolling window \(j\) after \(\tau\), by Ogata thinning. Each window is scored with the sibling-aware non-conformity score (Eq.&nbsp;\(7\)):</p>
+        <div class="md">\[e_{j,k} = \min_{1 \le m \le M} \big\lVert \mathbf{S}_k \odot \big(y_j - \tilde y_j^{(m)}\big) \big\rVert_\infty, \qquad \mathbf{S} = \mathbf{C}\mathbf{C}^\top\]</div>
+        <p>The intervals (Eq.&nbsp;\(8\)) are</p>
+        <div class="md">\[\hat L_k = \min_m \tilde y^{(m)}_{n+1,k} - \hat Q_k, \qquad \hat U_k = \max_m \tilde y^{(m)}_{n+1,k} + \hat Q_k\]</div>
+        <p>where \(\hat Q_k\) is the (optionally recency-weighted) conformal quantile. Summing them over a substation's circuits gives a valid substation interval. The network total gets its own one-dimensional conformal score.</p>
+        <h4>4 · Long-range scenario</h4>
+        <p>The model is refitted on all records and simulated to \(2050\). The saturation term is \(\gamma(t) = 1\) until the tipping point \(t_{\text{tp}}\); after it, adoption slows with the remaining headroom to the cap:</p>
+        <div class="md">\[\gamma(t) = \frac{1 - N_t / N_{\text{cap}}}{1 - N_{t_{\text{tp}}} / N_{\text{cap}}}, \qquad t \ge t_{\text{tp}}\]</div>
+        <p>Each path also draws its growth rate \(\rho\) from its estimated sampling error, anchored to today's rate, so the band widens with the horizon.</p>
+      </section>
+
+      <section id="rm-caveats">
+        <h3>Caveats</h3>
+        <ul>
+          <li>The conformal guarantee covers only the next-window intervals. The \(2050\) band is a model-based Monte Carlo spread under the chosen saturation scenario.</li>
+          <li>Held-out windows overlap in time and span only a few years, so the coverage checks are noisy.</li>
+          <li>With few records per circuit, the per-circuit background rates absorb part of the clustering, so peer effects tend to be under-estimated.</li>
+          <li>OpenStreetMap's main tile server rejects requests from pages opened directly from disk (<code>file://</code>). The map then switches to OpenStreetMap France's Humanitarian tiles. Served over http(s), such as GitHub Pages or a local server, it uses the standard OpenStreetMap tiles. Offline, the map falls back to a schematic view.</li>
+        </ul>
+      </section>
+    </div>
+  </aside>
+</div>
+
+<div class="qtip" id="qtip" role="tooltip" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
