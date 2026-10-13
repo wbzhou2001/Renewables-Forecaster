@@ -424,7 +424,6 @@
       case 'data':
         S.data = msg.data;
         S.hist = deriveHistory(msg.data);
-        renderDataInfo();
         break;
       case 'fit':
         S.sec[msg.sector].fit = { train: msg.train, full: msg.full };
@@ -549,17 +548,7 @@
   // ------------------------------------------------------------ rendering
   function renderAll() {
     if (!S.data) return;
-    renderDataInfo(); renderOutlook(); renderSubs(); renderMap(); renderCal();
-  }
-
-  function renderDataInfo() {
-    const D = S.data;
-    if (!D) return;
-    const H = S.hist;
-    const n = H.residential.total + H.commercial.total;
-    const endY = D.T0 + Math.ceil(D.Tend) - 1;
-    $('footData').textContent = `${fmtInt(n)} ${D.synthetic ? 'synthetic' : 'uploaded'} installation records · ${D.topo.K} circuits · ${D.topo.R} substations · ${D.T0}–${endY}` +
-      (D.synthetic ? ` · seed ${cfg.data.gen.seed}` : '');
+    renderOutlook(); renderSubs(); renderMap(); renderCal();
   }
 
 
