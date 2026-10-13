@@ -163,6 +163,8 @@
     return q;
   }
 
+  // filled share of a slider track (drawn in CSS from --pct)
+  const fillRange = inp => inp.style.setProperty('--pct', ((inp.value - inp.min) / (inp.max - inp.min) * 100) + '%');
   const bound = []; // {input, output, get, set, def}
   function buildRange(parent, def, get, set) {
     const row = document.createElement('div');
@@ -185,6 +187,7 @@
     const b = { inp, out, get, set, def };
     inp.addEventListener('input', () => {
       const v = +inp.value;
+      fillRange(inp);
       set(v);
       texNum(out, def.fmt(v));
       onChange(def.key);
@@ -277,7 +280,7 @@
     });
   }
   function syncControls() {
-    for (const b of bound) { const v = b.get(); b.inp.value = v; texNum(b.out, b.def.fmt(v)); }
+    for (const b of bound) { const v = b.get(); b.inp.value = v; fillRange(b.inp); texNum(b.out, b.def.fmt(v)); }
     $('seed').value = cfg.data.gen.seed;
     document.querySelectorAll('[data-sector-name]').forEach(e => { e.textContent = '· ' + LABEL[S.active]; });
   }
