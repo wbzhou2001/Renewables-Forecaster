@@ -99,6 +99,10 @@ js/app.js       controls, worker wiring, rendering, CSV import/export
 data/real/      desensitized Indianapolis data (see "Real data" above)
 ```
 
+When you release changes, bump the `?v=` tag on the CSS and JS links in
+`index.html`, and on `bundle.js` in `js/app.js`. Otherwise returning visitors can
+get the new page with cached old scripts for up to 10 minutes.
+
 ## Interface
 
 - **Theme:** Carnegie Mellon colours, with a Carnegie Red accent on Iron

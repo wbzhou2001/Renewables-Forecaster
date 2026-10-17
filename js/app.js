@@ -961,7 +961,7 @@
   async function loadReal() {
     const msg = $('realMsg');
     try {
-      if (!window.HPCP_REAL_DATA) { msg.textContent = 'Loading the Indianapolis data…'; await loadScript('data/real/bundle.js'); }
+      if (!window.HPCP_REAL_DATA) { msg.textContent = 'Loading the Indianapolis data…'; await loadScript('data/real/bundle.js?v=20261017'); }
       const total = +$('realCust').value;
       const built = buildDataset(window.HPCP_REAL_DATA.records, window.HPCP_REAL_DATA.topology, total, 'real|' + total);
       msg.textContent = `Desensitized Indianapolis data: ${built.summary}.`;
