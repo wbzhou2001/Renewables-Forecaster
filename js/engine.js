@@ -712,10 +712,12 @@ function HPCPEngine() {
   async function run(id, cfg, post) {
     const stale = () => id !== latest;
     const t0 = Date.now();
-    const dk = cfg.data.source === 'upload' ? 'U:' + cfg.data.upload.key : 'S:' + JSON.stringify(cfg.data.gen);
+    // 'real' (bundled desensitized data) and 'upload' both arrive as a parsed dataset
+    const parsed = cfg.data.source !== 'synthetic';
+    const dk = parsed ? 'U:' + cfg.data.upload.key : 'S:' + JSON.stringify(cfg.data.gen);
     if (C.dk !== dk) {
-      post({ type: 'status', id, text: 'Generating installation records' });
-      C.data = cfg.data.source === 'upload' ? buildUploaded(cfg.data.upload) : buildSynthetic(cfg.data.gen);
+      post({ type: 'status', id, text: parsed ? 'Loading installation records' : 'Generating installation records' });
+      C.data = parsed ? buildUploaded(cfg.data.upload) : buildSynthetic(cfg.data.gen);
       C.dk = dk; C.sec = {};
     }
     const D = C.data, topo = D.topo;

@@ -105,6 +105,7 @@
     sec: { residential: {}, commercial: {} },
     metric: 'units', mapMetric: 'upper',
     runId: 0, busy: false, lastRunMs: null,
+    datasets: { real: null, upload: null }, wantSource: 'synthetic',
   };
 
   // ------------------------------------------------------------ controls
@@ -315,6 +316,7 @@
     $('fileRecords').addEventListener('change', loadUpload);
     $('fileTopo').addEventListener('change', loadUpload);
     $('custTotal').addEventListener('change', loadUpload);
+    $('realCust').addEventListener('change', () => { S.datasets.real = null; if (S.wantSource === 'real') loadReal(); });
     $('themeBtn').addEventListener('click', toggleTheme);
     $('readmeBtn').addEventListener('click', () => setReadme(!$('app').classList.contains('readme-open')));
     $('readmeClose').addEventListener('click', () => setReadme(false));
@@ -363,16 +365,22 @@
     renderAll();
     scheduleRun(0);
   }
+  // Data sources: 'synthetic' (generated in the engine), 'real' (bundled
+  // desensitized data) and 'upload' (user CSVs). The last two are parsed here.
   function setSource(src) {
-    if (src === 'upload' && !cfg.data.upload) {
-      $('synthCtl').hidden = true; $('uploadCtl').hidden = false;
-      document.querySelectorAll('[data-source]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.source === src)));
-      return; // wait for a file
-    }
-    cfg.data.source = src;
+    S.wantSource = src;
     $('synthCtl').hidden = src !== 'synthetic';
+    $('realCtl').hidden = src !== 'real';
     $('uploadCtl').hidden = src !== 'upload';
     document.querySelectorAll('[data-source]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.source === src)));
+    const ds = src === 'synthetic' ? null : S.datasets[src];
+    if (src !== 'synthetic' && !ds) {
+      if (src === 'real') loadReal(); // switches over once loaded
+      return; // upload: wait for a file
+    }
+    if (cfg.data.source === src && cfg.data.upload === ds) return;
+    cfg.data.source = src;
+    cfg.data.upload = ds;
     onChange('source');
   }
 
@@ -833,27 +841,24 @@
   }
   const readFile = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsText(f); });
 
-  async function loadUpload() {
-    const fRec = $('fileRecords').files[0];
-    const msg = $('uploadMsg');
-    if (!fRec) return;
-    try {
-      const rec = parseCSV(await readFile(fRec));
+  // Parse a records CSV (and optional topology CSV) into the engine's dataset
+  // shape. Shared by the Upload and Real data sources; throws on bad input.
+  function buildDataset(recText, topoText, totalCustomers, key) {
+      const rec = parseCSV(recText);
       const hd = rec.shift();
       const ci = { date: findCol(hd, ['date', 'install_date', 'installation_date', 'application_date', 'time', 'timestamp']),
         circuit: findCol(hd, ['circuit_id', 'circuit', 'feeder', 'feeder_id']),
         sub: findCol(hd, ['substation_id', 'substation']),
         sector: findCol(hd, ['sector', 'customer_class', 'class', 'type']) };
       if (ci.date < 0 || ci.circuit < 0) throw new Error('Records need at least a date column and a circuit_id column.');
-      const fTopo = $('fileTopo').files[0];
       const circ = new Map(), subs = new Map(), circSub = [], custR = [], custC = [], lon = [], lat = [];
       const addSub = id => { if (!subs.has(id)) subs.set(id, subs.size); return subs.get(id); };
       const addCirc = (id, sid) => {
         if (!circ.has(id)) { circ.set(id, circ.size); circSub.push(addSub(sid || 'S-' + id)); custR.push(NaN); custC.push(NaN); lon.push(NaN); lat.push(NaN); }
         return circ.get(id);
       };
-      if (fTopo) {
-        const tp = parseCSV(await readFile(fTopo));
+      if (topoText) {
+        const tp = parseCSV(topoText);
         const th = tp.shift();
         const ti = { c: findCol(th, ['circuit_id', 'circuit', 'feeder']), s: findCol(th, ['substation_id', 'substation']),
           r: findCol(th, ['residential_customers', 'residential', 'res_customers']), m: findCol(th, ['commercial_customers', 'commercial', 'com_customers']),
@@ -883,7 +888,7 @@
       for (const e of evs) { e.t = (e.y - T0) + (e.mo + e.frac) / 12; maxT = Math.max(maxT, e.t); }
       evs.sort((a, b) => a.t - b.t);
       const Tend = Math.floor(maxT * 12 + 1) / 12;
-      const K = circ.size, R = subs.size, total = Math.max(1, +$('custTotal').value || 568894);
+      const K = circ.size, R = subs.size, total = Math.max(1, +totalCustomers || 568894);
       for (let k = 0; k < K; k++) {
         if (!(custR[k] >= 0)) custR[k] = Math.round(total * 0.9 / K);
         if (!(custC[k] >= 0)) custC[k] = Math.round(total * 0.1 / K);
@@ -911,18 +916,58 @@
       for (let k = 0; k < K; k++) { slon[circSub[k]] += glon[k] / (sn[circSub[k]] || 1); slat[circSub[k]] += glat[k] / (sn[circSub[k]] || 1); }
       const sectors = { residential: { t: [], k: [] }, commercial: { t: [], k: [] } };
       for (const e of evs) { sectors[e.sec].t.push(e.t); sectors[e.sec].k.push(e.k); }
-      cfg.data.upload = {
-        key: [fRec.name, fRec.size, fRec.lastModified, fTopo ? fTopo.name + fTopo.size : '', total].join('|'),
-        T0, Tend,
-        topo: { sub: circSub, circuitIds: [...circ.keys()], substationIds: [...subs.keys()], x, y, sx, sy, lon: glon, lat: glat, slon, slat, cust: { residential: custR, commercial: custC } },
-        sectors,
+      return {
+        dataset: {
+          key, T0, Tend,
+          topo: { sub: circSub, circuitIds: [...circ.keys()], substationIds: [...subs.keys()], x, y, sx, sy, lon: glon, lat: glat, slon, slat, cust: { residential: custR, commercial: custC } },
+          sectors,
+        },
+        summary: `${fmtInt(evs.length)} records on ${K} circuits / ${R} substations (${T0}–${T0 + Math.ceil(Tend) - 1})`,
       };
-      msg.textContent = `Loaded ${fmtInt(evs.length)} records on ${K} circuits / ${R} substations (${T0}–${T0 + Math.ceil(Tend) - 1}).`;
-      if (cfg.model.tau <= T0 + 1 || cfg.model.tau >= T0 + Tend - 1) cfg.model.tau = T0 + Math.max(1, Math.round(Tend * 0.6));
-      syncControls();
-      setSource('upload');
+  }
+
+  // Make a parsed dataset the active source (unless the user switched away while it loaded).
+  function useDataset(src, built) {
+    S.datasets[src] = built.dataset;
+    const { T0, Tend } = built.dataset;
+    if (cfg.model.tau <= T0 + 1 || cfg.model.tau >= T0 + Tend - 1) cfg.model.tau = T0 + Math.max(1, Math.round(Tend * 0.6));
+    syncControls();
+    if (S.wantSource === src) setSource(src);
+  }
+
+  async function loadUpload() {
+    const fRec = $('fileRecords').files[0], fTopo = $('fileTopo').files[0], msg = $('uploadMsg');
+    if (!fRec) return;
+    try {
+      const total = +$('custTotal').value;
+      const key = ['upload', fRec.name, fRec.size, fRec.lastModified, fTopo ? fTopo.name + fTopo.size : '', total].join('|');
+      const built = buildDataset(await readFile(fRec), fTopo ? await readFile(fTopo) : null, total, key);
+      msg.textContent = `Loaded ${built.summary}.`;
+      useDataset('upload', built);
     } catch (e) {
       msg.textContent = 'Could not read file: ' + e.message;
+    }
+  }
+
+  // Real: the desensitized Indianapolis data in data/real/. bundle.js is generated
+  // from the CSVs there and loaded as a script, so it also works from file://.
+  const loadScript = src => new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('could not load ' + src));
+    document.head.append(s);
+  });
+  async function loadReal() {
+    const msg = $('realMsg');
+    try {
+      if (!window.HPCP_REAL_DATA) { msg.textContent = 'Loading the Indianapolis data…'; await loadScript('data/real/bundle.js'); }
+      const total = +$('realCust').value;
+      const built = buildDataset(window.HPCP_REAL_DATA.records, window.HPCP_REAL_DATA.topology, total, 'real|' + total);
+      msg.textContent = `Desensitized Indianapolis data: ${built.summary}.`;
+      useDataset('real', built);
+    } catch (e) {
+      msg.textContent = 'Could not load the real data: ' + e.message;
     }
   }
 
@@ -946,17 +991,17 @@
   function exportCSV(kind) {
     const D = S.data;
     if (!D) return;
-    const name = S.active, tag = `${name}_${D.synthetic ? 'synthetic_seed' + cfg.data.gen.seed : 'upload'}`;
+    const name = S.active, tag = `${name}_${D.synthetic ? 'synthetic_seed' + cfg.data.gen.seed : cfg.data.source}`;
     if (kind === 'records') {
       const rows = [['date', 'circuit_id', 'substation_id', 'sector']];
       const all = [];
       for (const sname of SECTORS) { const s = D.sectors[sname]; for (let i = 0; i < s.t.length; i++) all.push([s.t[i], s.k[i], sname]); }
       all.sort((a, b) => a[0] - b[0]);
       for (const [t, k, sname] of all) rows.push([dateOf(t, D.T0), D.topo.circuitIds[k], D.topo.substationIds[D.topo.sub[k]], sname]);
-      download(`records_${D.synthetic ? 'synthetic_seed' + cfg.data.gen.seed : 'upload'}.csv`, rows);
+      download(`records_${D.synthetic ? 'synthetic_seed' + cfg.data.gen.seed : cfg.data.source}.csv`, rows);
       const topo = [['circuit_id', 'substation_id', 'residential_customers', 'commercial_customers', 'x', 'y']];
       for (let k = 0; k < D.topo.K; k++) topo.push([D.topo.circuitIds[k], D.topo.substationIds[D.topo.sub[k]], D.topo.cust.residential[k], D.topo.cust.commercial[k], D.topo.x[k].toFixed(4), D.topo.y[k].toFixed(4)]);
-      setTimeout(() => download(`topology_${D.synthetic ? 'synthetic_seed' + cfg.data.gen.seed : 'upload'}.csv`, topo), 300);
+      setTimeout(() => download(`topology_${D.synthetic ? 'synthetic_seed' + cfg.data.gen.seed : cfg.data.source}.csv`, topo), 300);
     } else if (kind === 'forecast') {
       const sum = longSummary(name), H = S.hist[name], sc = cfg.sectors[name];
       if (!sum) return;

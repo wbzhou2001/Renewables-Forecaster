@@ -21,10 +21,21 @@
       </div>
 
       <section class="ctl-group">
-        <h2>Data <button type="button" class="q" aria-label="About the data source" data-help="Synthetic: installation records drawn from a known multivariate Hawkes process (the ground truth), at the scale of the real Indianapolis data. Upload CSV: use your own installation records instead.">?</button></h2>
+        <h2>Data <button type="button" class="q" aria-label="About the data source" data-help="Synthetic: installation records drawn from a known multivariate Hawkes process (the ground truth), at the scale of the real Indianapolis data. Real: the desensitized Indianapolis installation records. Upload CSV: use your own installation records instead.">?</button></h2>
         <div class="seg" role="radiogroup" aria-label="Data source">
           <button type="button" data-source="synthetic" aria-pressed="true">Synthetic</button>
+          <button type="button" data-source="real" aria-pressed="false">Real</button>
           <button type="button" data-source="upload" aria-pressed="false">Upload CSV</button>
+        </div>
+        <div id="realCtl" hidden>
+          <p class="help" id="realMsg" role="status"></p>
+          <div class="ctl-row">
+            <div class="ctl-head">
+              <label for="realCust">Total customers</label>
+              <button type="button" class="q" aria-label="About total customers for the real data" data-help="The real data has no customer counts per circuit, so this total is split evenly across circuits ($90\%$ residential, $10\%$ commercial). It sets the penetration denominators and the cap, not the fitted dynamics.">?</button>
+            </div>
+            <input id="realCust" type="number" min="1" step="1" value="568894">
+          </div>
         </div>
         <div id="synthCtl">
           <div class="ctl-row">
@@ -229,7 +240,12 @@
 
       <section id="rm-about">
         <h3>About</h3>
-        <p>This portal forecasts rooftop solar adoption on the Indianapolis distribution grid. The demo runs on <strong>synthetic records</strong> drawn from the model in the paper, at the scale of the real dataset: about \(1{,}700\) records on \(K = 245\) circuits under \(R = 51\) substations, \(2010\)–\(2024\). Use <em>Upload CSV</em> to replace them with your own records.</p>
+        <p>This portal forecasts rooftop solar adoption on the Indianapolis distribution grid. Three data sources are available in the control panel:</p>
+        <ul>
+          <li><em>Synthetic</em>: records drawn from the model in the paper, with known ground-truth parameters, at the scale of the real dataset.</li>
+          <li><em>Real</em>: the desensitized Indianapolis installation records, \(1{,}617\) installations on \(374\) circuits under \(49\) substations, \(2000\)–\(2024\). Circuit and substation names are replaced by random codes. Each location is the centre of the circuit's poles shifted by random noise of about \(400\,\text{m}\). Installation addresses and coordinates are removed. Timestamps and sectors (residential or commercial) are kept.</li>
+          <li><em>Upload CSV</em>: your own records.</li>
+        </ul>
         <p>Hover or tap the <span class="q-inline">?</span> next to any setting in the control panel to see what it does. Drag the panel's edge to resize it. Dragging it to the far left hides it and gives the dashboard the full width; drag or click the tab at the left edge to bring it back.</p>
       </section>
 
@@ -246,7 +262,7 @@
         <h4>Substations</h4>
         <p>Each whisker is a substation's HPCP interval for new installations in the next window. The dot is the point forecast (mean of the \(M\) simulated futures) and the dark tick the count observed in the last window. Substations are sorted from the highest upper bound to the lowest. <span id="subsNote"></span></p>
         <h4>Grid map</h4>
-        <p>Circuits are dots colored by the selected metric, joined to their substation (triangle) on an OpenStreetMap base map. Hover a circuit to see its numbers and highlight its sibling circuits. <strong>In the synthetic demo, positions are synthetic</strong>: circuits are scattered over Indianapolis and are not real feeder locations. Uploaded topology with lon/lat is drawn where it is.</p>
+        <p>Circuits are dots colored by the selected metric, joined to their substation (triangle) on an OpenStreetMap base map. Hover a circuit to see its numbers and highlight its sibling circuits. Positions depend on the data source. With <em>Synthetic</em>, circuits are scattered over Indianapolis and are not real feeders. With <em>Real</em>, each circuit sits at the centre of its poles plus about \(400\,\text{m}\) of random noise, and each substation at the centre of its circuits. Uploaded topology with lon/lat is drawn where it is.</p>
       </section>
 
       <section id="rm-calibration">
